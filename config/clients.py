@@ -11,9 +11,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-##### 클라이언트 의존성 주입 함수 정의 #####
-# app.py lifespan 에서 초기화된 클라이언트를 반환
-
 # 모든 클라이언트 인스턴스를 담을 컨테이너 클래스
 class ClientContainer:
     def __init__(self):

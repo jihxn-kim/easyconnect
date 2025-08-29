@@ -8,15 +8,9 @@ from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 from logs.logging_util import LoggerSingleton
 from contextlib import asynccontextmanager
-from config.clients import ClientContainer, initialize_clients
+from config.clients import initialize_clients
 from test.router import router as test_router
 import logging
-
-# 앱 상테에 클라이언트 컨테이너를 저장할 변수
-client_container: ClientContainer = None
-
-def get_client_container() -> ClientContainer:
-    return client_container
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,7 +34,7 @@ async def lifespan(app: FastAPI):
     #     f"{'=' * 80}\n"
     # )
 
-    # 클라이언트 객체 초기화
+    # 앱 상테에 클라이언트 컨테이너를 저장할 객체 초기화
     global client_container
     client_container = initialize_clients()
     app.state.client_container = client_container
