@@ -1,9 +1,22 @@
+#####################################################
+#                                                   #
+#                앱 상태 정의 및 관리                  #
+#                                                   #
+#####################################################
+
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 from logs.logging_util import LoggerSingleton
-from config.client import openai_client
 from contextlib import asynccontextmanager
+from config.clients import ClientContainer, initialize_clients
+from test.router import router as test_router
 import logging
+
+# 앱 상테에 클라이언트 컨테이너를 저장할 변수
+client_container: ClientContainer = None
+
+def get_client_container() -> ClientContainer:
+    return client_container
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -27,6 +40,11 @@ async def lifespan(app: FastAPI):
     #     f"{'=' * 80}\n"
     # )
 
+    # 클라이언트 객체 초기화
+    global client_container
+    client_container = initialize_clients()
+    app.state.client_container = client_container
+
     yield
     # 종료시 클린업 작업은 여기서
     # Todo: 데이터베이스 연결 해제 로직 추가 필요
@@ -49,26 +67,13 @@ app = FastAPI(lifespan=lifespan)
 # Prometheus FastAPI 미들웨어 설정
 Instrumentator().instrument(app).expose(app)
 
-# # 라우터 등록
-# routers = [document_router, TTS_router, trans_router, image_router, test_app_router, video_router, create_image_router, music_router]
+# 라우터 등록
+routers = [test_router]
 
-# for router in routers:
-#     app.include_router(router)
+for router in routers:
+    app.include_router(router)
+
+# 라우터에 client_container 전달은 app.state를 통해 처리합니다.
 
 # 로거 설정
 logger = LoggerSingleton.get_logger(logger_name="app", level=logging.INFO)
-
-@app.post("/test")
-async def test(
-    prompt: str
-):
-    logger.info("test")
-    response = await openai_client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    logger.info(response.choices[0].message.content)
-    return {"message": response.choices[0].message.content}
