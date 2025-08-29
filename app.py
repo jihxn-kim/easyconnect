@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 import logging
 from logs.logging_util import LoggerSingleton
+from config.client import openai_client
 
 # FastAPI 앱 인스턴스 생성
 app = FastAPI()
@@ -19,6 +20,16 @@ Instrumentator().instrument(app).expose(app)
 logger = LoggerSingleton.get_logger(logger_name="app", level=logging.INFO)
 
 @app.post("/test")
-async def test():
+async def test(
+    prompt: str
+):
     logger.info("test")
-    return {"message": "Hello, World!"}
+    response = await openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    logger.info(response.choices[0].message.content)
+    return {"message": response.choices[0].message.content}
