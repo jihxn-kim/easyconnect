@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from tools.notion.store import (
     list_webhook_secrets,
     get_workspace_id_by_webhook_id,
+    get_workspace_id_by_incoming_secret,
 )
 from logs.logging_util import LoggerSingleton
 import logging
@@ -31,6 +32,9 @@ def _get_signature_from_headers(request: Request) -> Optional[str]:
         "x-notion-signature",
         "Notion-Signature",
         "notion-signature",
+        # 자동화용 사용자 시크릿 헤더
+        "X-Notion-Automation-Secret",
+        "x-notion-automation-secret",
     ]
     for key in candidates:
         value = request.headers.get(key)
@@ -74,17 +78,27 @@ async def notion_webhook(request: Request):
         return JSONResponse({"challenge": payload.get("challenge")})
 
     signature = _get_signature_from_headers(request)
-    if not signature:
-        logger.warning("시그니처 헤더 누락")
-        raise HTTPException(status_code=401, detail="signature header missing")
 
-    matched_webhook_id = _match_signature(raw_body, signature)
-    if not matched_webhook_id:
-        logger.warning("시그니처 불일치")
-        raise HTTPException(status_code=401, detail="invalid signature")
+    workspace_id = None
 
-    # webhook_id -> workspace 식별
-    workspace_id = get_workspace_id_by_webhook_id(matched_webhook_id)
+    # 1) 공식 웹훅 서명(HMAC) 검증 경로
+    matched_webhook_id = None
+    if signature and signature.lower().startswith("sha256="):
+        matched_webhook_id = _match_signature(raw_body, signature)
+        if not matched_webhook_id:
+            logger.warning("시그니처 불일치")
+            raise HTTPException(status_code=401, detail="invalid signature")
+        workspace_id = get_workspace_id_by_webhook_id(matched_webhook_id)
+
+    # 2) 자동화 비밀 헤더 경로
+    if not workspace_id:
+        automation_secret = request.headers.get("X-Notion-Automation-Secret") or request.headers.get("x-notion-automation-secret")
+        if automation_secret:
+            workspace_id = get_workspace_id_by_incoming_secret(automation_secret)
+            if not workspace_id:
+                logger.warning("자동화 시크릿 불일치")
+                raise HTTPException(status_code=401, detail="invalid automation secret")
+
     if not workspace_id:
         # 페이로드에 workspace_id가 있으면 보강
         workspace_id = (

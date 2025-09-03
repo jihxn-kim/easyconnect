@@ -43,6 +43,7 @@ def upsert_workspace(
     webhook_id: Optional[str] = None,
     webhook_secret: Optional[str] = None,
     webhook_url: Optional[str] = None,
+    incoming_secret: Optional[str] = None,
 ) -> None:
     """워크스페이스 매핑 정보를 병합 저장합니다."""
     with _LOCK:
@@ -56,6 +57,7 @@ def upsert_workspace(
                 "webhook_id": webhook_id or existing.get("webhook_id"),
                 "webhook_secret": webhook_secret or existing.get("webhook_secret"),
                 "webhook_url": webhook_url or existing.get("webhook_url"),
+                "incoming_secret": incoming_secret or existing.get("incoming_secret"),
             }
         )
         workspaces[workspace_id] = existing
@@ -105,6 +107,25 @@ def get_workspace_id_by_webhook_id(webhook_id: str) -> Optional[str]:
         info = store.get("webhooks", {}).get(webhook_id)
         if info:
             return info.get("workspace_id")
+        return None
+
+
+def set_incoming_secret(*, workspace_id: str, secret: str) -> None:
+    with _LOCK:
+        store = _read_store()
+        workspaces = store.setdefault("workspaces", {})
+        existing = workspaces.get(workspace_id, {})
+        existing["incoming_secret"] = secret
+        workspaces[workspace_id] = existing
+        _write_store(store)
+
+
+def get_workspace_id_by_incoming_secret(secret: str) -> Optional[str]:
+    with _LOCK:
+        store = _read_store()
+        for ws_id, info in store.get("workspaces", {}).items():
+            if info.get("incoming_secret") == secret:
+                return ws_id
         return None
 
 

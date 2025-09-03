@@ -6,13 +6,14 @@
 
 import os
 import secrets
+import base64
 from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 
-from tools.notion.store import upsert_workspace, set_webhook_info
+from tools.notion.store import upsert_workspace, set_webhook_info, set_incoming_secret
 from logs.logging_util import LoggerSingleton
 import logging
 
@@ -62,17 +63,18 @@ async def notion_oauth_callback(code: str, state: str | None = None):
     _require_env_vars()
     token_url = f"{NOTION_API_BASE}/v1/oauth/token"
 
+    basic_token = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode("utf-8")).decode("utf-8")
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
+        "Authorization": f"Basic {basic_token}",
+        # OAuth 토큰 교환에는 보통 Notion-Version이 필요 없지만, 보내도 무방합니다.
         "Notion-Version": NOTION_VERSION,
     }
     payload = {
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": REDIRECT_URI,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -93,25 +95,20 @@ async def notion_oauth_callback(code: str, state: str | None = None):
         # 워크스페이스 정보 저장
         upsert_workspace(workspace_id=workspace_id, access_token=access_token, bot_id=bot_id)
 
-        # 사용자 고유 웹훅 생성 (단일 콜백 URL + 개별 시크릿)
-        webhook_secret = secrets.token_hex(32)
-        webhook_id = await _create_user_webhook(
-            access_token=access_token,
-            workspace_id=workspace_id,
-            callback_url=WEBHOOK_CALLBACK_URL,
-            webhook_secret=webhook_secret,
-        )
+        # 사용자 고유 시크릿 발급 (자동화 Webhook 호출 헤더로 사용)
+        incoming_secret = secrets.token_hex(32)
+        set_incoming_secret(workspace_id=workspace_id, secret=incoming_secret)
 
-        # 저장
-        if webhook_id:
-            set_webhook_info(
-                workspace_id=workspace_id,
-                webhook_id=webhook_id,
-                webhook_secret=webhook_secret,
-                webhook_url=WEBHOOK_CALLBACK_URL,
-            )
-
-    return JSONResponse({"ok": True, "workspace_id": workspace_id, "webhook_id": webhook_id})
+    return JSONResponse({
+        "ok": True,
+        "workspace_id": workspace_id,
+        # Notion 자동화에서 사용할 사용자 고유 시크릿과 콜백 URL 안내
+        "automation": {
+            "callback_url": WEBHOOK_CALLBACK_URL,
+            "header_name": "X-Notion-Automation-Secret",
+            "header_value": incoming_secret,
+        },
+    })
 
 
 async def _create_user_webhook(*, access_token: str, workspace_id: str, callback_url: str, webhook_secret: str) -> str | None:
