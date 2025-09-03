@@ -10,6 +10,8 @@ from logs.logging_util import LoggerSingleton
 from contextlib import asynccontextmanager
 from config.clients import initialize_clients
 from test.router import router as test_router
+from tools.notion.OAuth import router as notion_oauth_router
+from tools.notion.webhook import router as notion_webhook_router
 import logging
 
 @asynccontextmanager
@@ -62,7 +64,7 @@ app = FastAPI(lifespan=lifespan)
 Instrumentator().instrument(app).expose(app)
 
 # 라우터 등록
-routers = [test_router]
+routers = [test_router, notion_oauth_router, notion_webhook_router]
 
 for router in routers:
     app.include_router(router)
